@@ -64,7 +64,33 @@ func TestValidParsing(t *testing.T) {
 
 }
 
-func TestBuildTree(t *testing.T) {
+func TestMapLogLineToCall(t *testing.T) {
+	in := LogLine{
+		Start:       "2013-10-23 10:12:35.271",
+		End:         "2013-10-23 10:12:35.471",
+		Id:          "eckakaau",
+		ServiceName: "service6",
+		Caller:      "null",
+		Callee:      "bm6il56t",
+	}
+
+	out := mapLogLineToCall(in)
+
+	if out.End != in.End {
+		t.Error("Wrong end date")
+	}
+	if out.Start != in.Start {
+		t.Error("Wrong start date")
+	}
+	if out.Service != in.ServiceName {
+		t.Error("Wrong service mapping")
+	}
+	if out.Span != in.Callee {
+		t.Error("Wrong callee mapping")
+	}
+}
+
+func TestTransformLogs(t *testing.T) {
 	testLog := []string{
 		"2013-10-23T10:12:35.298Z 2013-10-23T10:12:35.300Z eckakaau service3 d6m3shqy->62d45qeh",
 		"2013-10-23T10:12:35.293Z 2013-10-23T10:12:35.302Z eckakaau service7 zfjlsiev->d6m3shqy",
@@ -99,7 +125,7 @@ func TestBuildTree(t *testing.T) {
 		lines <- StopSignal
 
 	}()
-	go TransformLogs(lines, malformedLines, transformedLogs, orphanLogs)
+	go transformLogs(lines, malformedLines, transformedLogs, orphanLogs)
 	go func() {
 		defer wg.Done()
 		for {

@@ -1,7 +1,9 @@
 package parsing
 
 import (
+	"bufio"
 	"encoding/json"
+	"log"
 	"strings"
 	"sync"
 )
@@ -80,7 +82,7 @@ func handleOrphans(orphans map[string][]LogLine, orphanLogs chan<- string) {
 	orphanLogs <- StopSignal
 }
 
-func TransformLogs(lines <-chan string, malformedLines, transformedLogs, orphanLogs chan<- string) {
+func transformLogs(lines <-chan string, malformedLines, transformedLogs, orphanLogs chan<- string) {
 	logs := make(map[string][]LogLine)
 	var wg sync.WaitGroup
 
@@ -101,7 +103,7 @@ func TransformLogs(lines <-chan string, malformedLines, transformedLogs, orphanL
 				logs[logID] = append(elem, logLine)
 			}
 			if logLine.Caller == firstCaller {
-				//	buildLogResult(logLine.ServiceName, logs[logID], transformedLogs)
+				//buildLogResult(logLine.ServiceName, logs[logID], transformedLogs)
 				wg.Add(1)
 				go func(logLines []LogLine) {
 					defer wg.Done()
@@ -138,4 +140,59 @@ func tryParseLine(line string) (bool, LogLine) {
 		Caller:      involvedServices[0],
 		Callee:      involvedServices[1],
 	}
+}
+
+func StartWatching(scanner *bufio.Scanner, parsedOutput, orphanOutput, malformedOutput *bufio.Writer) {
+	bufferSize := 100
+	lines := make(chan string, bufferSize)
+	malformedLines := make(chan string, bufferSize)
+	transformedLogs := make(chan string, bufferSize)
+	orphanLogs := make(chan string, bufferSize)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for scanner.Scan() {
+			text := scanner.Text()
+
+			if text == StopSignal {
+				break
+			}
+
+			lines <- text
+		}
+
+		lines <- StopSignal
+		if err := scanner.Err(); err != nil {
+			log.Fatal(err)
+			lines <- StopSignal
+		}
+	}()
+
+	go transformLogs(lines, malformedLines, transformedLogs, orphanLogs)
+
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case transformed := <-transformedLogs:
+				if transformed == StopSignal {
+					return
+				}
+				parsedOutput.WriteString(transformed + "\n")
+			case orphan := <-orphanLogs:
+				if orphan != StopSignal {
+					orphanOutput.WriteString(orphan + "\n")
+				}
+			case malformedLog := <-malformedLines:
+				malformedOutput.WriteString(malformedLog + "\n")
+			}
+		}
+	}()
+
+	wg.Wait()
+	parsedOutput.Flush()
+	orphanOutput.Flush()
+	malformedOutput.Flush()
 }
